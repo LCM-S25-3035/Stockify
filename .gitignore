@@ -1,0 +1,14 @@
+# ===== Python =====
+*.py[cod]
+*.pyo
+*.pyd
+
+# ===== Jupyter Notebooks =====
+.ipynb_checkpoints/
+*.ipynb~ 
+
+# ===== Virtual Environments =====
+.venv/
+venv/
+ENV/
+env/
