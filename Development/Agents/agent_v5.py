@@ -15,6 +15,8 @@ import warnings
 warnings.filterwarnings('ignore')
 import joblib
 import json
+from gym.utils import seeding
+
 
 #List of stock tickers to analyze in the portfolio
 tickers = [
@@ -145,8 +147,8 @@ class StockPortfolioEnv(gym.Env):
             [self.portfolio_value / self.initial_amount],          #Normalized portfolio value
             [self.risk_appetite],                                  #Risk appetite (constant)
             regime_onehot,                                         #One‑hot regime
-            self.micro_indicators[self.current_step],             #Technical indicators
-            self.macro_indicators[self.current_step]              #MACRO: Macro indicators
+            self.micro_indicators[self.current_step],              #Technical indicators
+            self.macro_indicators[self.current_step]               #MACRO: Macro indicators
         ])
         return obs
 
@@ -190,6 +192,11 @@ class StockPortfolioEnv(gym.Env):
         for i, ticker in enumerate(tickers):
             print(f"{ticker}: {self.current_holdings[i]:.2f} shares (${holdings_value[i]:.2f}, {100*holdings_value[i]/total_value:.1f}%)")
 
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
+
 #Main Execution block
 if __name__ == "__main__":
     print("Downloading stock data...")
@@ -214,11 +221,17 @@ if __name__ == "__main__":
     indicator_scaler = MinMaxScaler().fit(micro_indicators)
     micro_indicators = indicator_scaler.transform(micro_indicators)
 
+
     #MACRO: Loading and aligning macroeconomic data
     print("Processing macroeconomic data...")
     macro_df = pd.read_csv('macroeconomic_data_2010_2024.csv', parse_dates=['Date'])
     macro_df.set_index('Date', inplace=True)
     macro_df = macro_df.reindex(adj_close_data.index, method='ffill')
+
+    #Select only the specified macro features
+    macro_df = macro_df[selected_macro_columns]
+
+    #Scale and transform
     macro_scaler = MinMaxScaler().fit(macro_df)
     macro_indicators = macro_scaler.transform(macro_df)
 
@@ -226,12 +239,14 @@ if __name__ == "__main__":
 
     print("Creating environment...")
     env = StockPortfolioEnv(prices, regime_classes, micro_indicators, macro_indicators, 10000, 0.5, 0.001)
+    env.seed(42)
 
     print("Training model...")
     model = PPO('MlpPolicy', env, verbose=1, learning_rate=3e-4, n_steps=2048,
                 batch_size=64, n_epochs=10, gamma=0.99, gae_lambda=0.95,
                 clip_range=0.2, ent_coef=0.01)
-    model.learn(total_timesteps=1500000)
+    
+    model.learn(total_timesteps=1500000, progress_bar=True)
 
     print("Saving model and scalers...")
     model.save("ppo_stock_model")
