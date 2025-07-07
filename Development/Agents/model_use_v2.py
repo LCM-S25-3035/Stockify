@@ -5,8 +5,10 @@ import pandas as pd
 import yfinance as yf
 import ta
 from stable_baselines3 import PPO
-from stock_agent_v3 import StockPortfolioEnv
+from agent_v5 import StockPortfolioEnv
 import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
 
 #User inputs for simulation for investment parameters
 amount = float(input("Enter investment amount (e.g., 5000): "))  #Intial amount to invest
@@ -15,9 +17,10 @@ risk = float(input("Enter risk appetite (0 to 1): "))  #Risk appetite between 0 
 
 #Loading pre-trained reinforcement learning model and data scalers
 #Loading the trained PPO model for stock trading
-model = PPO.load("D:\\Big Data Analytics\\Term 3\\Capstone Project\\stockify\\Agents\\ppo_stock_model.zip")
-vix_scaler = joblib.load("D:\\Big Data Analytics\\Term 3\\Capstone Project\\stockify\\Agents\\vix_scaler.pkl")
-indicator_scaler = joblib.load("D:\\Big Data Analytics\\Term 3\\Capstone Project\\stockify\\Agents\\indicator_scaler.pkl")
+model = PPO.load("ppo_stock_model.zip")
+vix_scaler = joblib.load("vix_scaler.pkl")
+indicator_scaler = joblib.load("indicator_scaler.pkl")
+macro_scaler = joblib.load("macro_scaler.pkl")
  
 #List of stock tickers to use in the portfolio
 with open("tickers.json", "r") as f:
@@ -99,13 +102,38 @@ def prepare_env(n_days=duration, initial_amount=amount, risk_appetite=risk):
     micro_indicators = compute_micro_indicators(adj_close_data)
     micro_indicators = indicator_scaler.transform(micro_indicators)
 
+    #MACRO: Loading and aligning macroeconomic data
+    print("Processing macroeconomic data...")
+    # Select only the top macro features for PPO
+    selected_macro_columns = [
+        "VIX Market Volatility",
+        "Federal Funds Rate",
+        "10-Year Treasury Yield",
+        "Unemployment Rate",
+        "CPI All Items",
+        "Recession Indicator"
+    ]
+    macro_df = pd.read_csv('macroeconomic_data_2010_2024.csv', parse_dates=['Date'])
+    macro_df.set_index('Date', inplace=True)
+    macro_df = macro_df.reindex(adj_close_data.index, method='ffill')
+    #Select only the specified macro features
+    macro_df = macro_df[selected_macro_columns]
+    macro_indicators = macro_scaler.transform(macro_df)
+
+
     prices = adj_close_data.to_numpy()  #Convertting price DataFrame to numpy array
 
     #Initializing the stock portfolio environment with all inputs
-    env = StockPortfolioEnv(prices, regimes, micro_indicators,
-                            initial_amount=initial_amount,
-                            risk_appetite=risk_appetite,
-                            transaction_fee=0.001)  #Setting transaction fee as 0.1%
+    env = StockPortfolioEnv(
+        prices=prices,
+        regime_class=regimes,
+        micro_indicators=micro_indicators,
+        macro_indicators=macro_indicators,
+        initial_amount=initial_amount,
+        risk_appetite=risk_appetite,
+        transaction_fee=0.001
+    )
+  #Setting transaction fee as 0.1%
     return env
 
 
