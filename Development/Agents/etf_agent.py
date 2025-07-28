@@ -16,10 +16,20 @@ import joblib
 import json
 from gym.utils import seeding
 
-# List of ETF tickers
+#List of ETF tickers
 etf_tickers = ["SPY", "QQQ", "VTI", "DIA", "IWM", "EFA", "EEM", "VNQ", "LQD", "BND"]
 start_date = '2018-01-01'
 end_date = '2025-05-20'
+
+#Selecting macroeconomic indicators
+selected_macro_columns = [
+    "VIX Market Volatility",
+    "Federal Funds Rate",
+    "10-Year Treasury Yield",
+    "Unemployment Rate",
+    "CPI All Items",
+    "Recession Indicator"
+]
 
 def compute_micro_indicators(df):
     features = []
@@ -60,11 +70,12 @@ def classify_regime(spy_norm):
 class ETFPortfolioEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, prices, regime_class, micro_indicators, initial_amount=10000, risk_appetite=0.2, transaction_fee=0.001):
+    def __init__(self, prices, regime_class, micro_indicators, macro_indicators, initial_amount=10000, risk_appetite=0.2, transaction_fee=0.001):
         super(ETFPortfolioEnv, self).__init__()
         self.prices = prices
         self.regime_class = regime_class
         self.micro_indicators = micro_indicators
+        self.macro_indicators = macro_indicators
         self.initial_amount = initial_amount
         self.risk_appetite = risk_appetite
         self.transaction_fee = transaction_fee
@@ -75,7 +86,7 @@ class ETFPortfolioEnv(gym.Env):
         self.current_holdings = np.zeros(self.n_assets)
 
         self.action_space = spaces.Box(low=0, high=1, shape=(self.n_assets,), dtype=np.float32)
-        obs_shape = self.n_assets + 2 + self.num_regimes + micro_indicators.shape[1]
+        obs_shape = self.n_assets + 2 + self.num_regimes + micro_indicators.shape[1] + macro_indicators.shape[1]
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_shape,), dtype=np.float32)
 
     def reset(self):
@@ -94,7 +105,8 @@ class ETFPortfolioEnv(gym.Env):
             [self.portfolio_value / self.initial_amount],
             [self.risk_appetite],
             regime_onehot,
-            self.micro_indicators[self.current_step]
+            self.micro_indicators[self.current_step],
+            self.macro_indicators[self.current_step]
         ])
         return obs
 
@@ -164,11 +176,29 @@ if __name__ == "__main__":
     micro_indicators = indicator_scaler.transform(micro_indicators)
     micro_indicators = np.nan_to_num(micro_indicators)
 
+    
+    print("Processing macroeconomic data...")
+    macro_df = pd.read_csv('macroeconomic_data_2010_2024.csv', parse_dates=['Date'])
+    macro_df.set_index('Date', inplace=True)
+    macro_df = macro_df.reindex(adj_close_data.index, method='ffill')
+
+    macro_df = macro_df[selected_macro_columns]
+
+    macro_scaler = MinMaxScaler().fit(macro_df)
+    macro_indicators = macro_scaler.transform(macro_df)
+
     adj_close_data = adj_close_data.replace([np.inf, -np.inf], np.nan).dropna()
     prices = adj_close_data.values
 
+    #Saving the numpy arrays
+    print("Saving preprocessed arrays for meta agent...")
+    np.save("prices_etf.npy", prices)
+    np.save("regime_etf.npy", regime_classes)
+    np.save("micro_indicators_etf.npy", micro_indicators)
+    np.save("macro_indicators_etf.npy", macro_indicators)
+
     print("Creating environment...")
-    env = ETFPortfolioEnv(prices, regime_classes, micro_indicators, 10000, 0.5, 0.001)
+    env = ETFPortfolioEnv(prices, regime_classes, micro_indicators, macro_indicators, 10000, 0.5, 0.001)
     env.seed(42)
 
     print("Training PPO model...")
@@ -186,5 +216,6 @@ if __name__ == "__main__":
     model.save("ppo_etf_model")
     joblib.dump(scaler, "spy_scaler.pkl")
     joblib.dump(indicator_scaler, "indicator_scaler_etf.pkl")
+    joblib.dump(macro_scaler, "macro_scaler_etf.pkl")
     with open("etf_tickers.json", "w") as f:
         json.dump(etf_tickers, f)
