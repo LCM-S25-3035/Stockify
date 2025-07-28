@@ -20,8 +20,26 @@ import joblib
 import json
 from gym.utils import seeding
 
-# Load the ETF dataset
-etf_data = pd.read_csv('Cleaned_combined_global_ETFs.csv', parse_dates=['Date'])
+# Import data collection and cleaning modules
+from ETF_alphavantage_time_series_daily_API import ETFDataCollector
+from ETF_data_cleaning_pipeline import ETFCleaner
+
+def load_and_prepare_data():
+    """Load and prepare ETF data using external modules"""
+    # 1. Data Collection
+    collector = ETFDataCollector(api_key='YOUR_API_KEY')  # Replace with your API key
+    collector.collect_all_data(continuous_mode=False)
+    
+    # 2. Data Cleaning
+    combined_data = collector.combine_all_data()
+    cleaner = ETFCleaner(combined_data)
+    cleaned_data = cleaner.run_full_clean(generate_plots=False)
+    
+    return cleaned_data
+
+# Load the ETF dataset using the new pipeline
+etf_data = load_and_prepare_data()
+
 
 # Get unique tickers from the dataset
 tickers = etf_data['Ticker'].unique().tolist()
